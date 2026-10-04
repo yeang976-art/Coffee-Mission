@@ -4,6 +4,57 @@
 
 <img width="1300" height="724" alt="image" src="https://github.com/user-attachments/assets/421bf7b9-c644-4bbe-8eca-8f665badc0a0" />
 
+## Enum 설계
+
+### 포인트 이력 유형 — PointHistoryType
+
+포인트 변경 사유를 구분합니다.
+
+| 값 | 의미 | amount | order_id |
+|---|---|---|---|
+| CHARGE | 포인트 충전 | 충전 금액, 양수 | NULL |
+| SPEND | 주문 결제에 포인트 사용 | 사용 금액, 양수 | 결제한 주문 ID |
+
+- `amount`는 충전과 사용 모두 양수로 저장하며, 변경 사유는 `type`으로 구분합니다.
+- `balance_after`에는 해당 작업 직후의 잔액을 저장합니다.
+- 실패하여 롤백된 작업은 이력을 남기지 않습니다.
+- 환불은 현재 과제 범위에 포함하지 않습니다.
+
+### 외부 전송 상태 — OutboxStatus
+
+결제된 주문 데이터의 외부 플랫폼 전송 상태를 관리합니다.
+주문 결제의 성공 여부와 외부 전송의 성공 여부는 별도로 관리합니다.
+
+| 값 | 의미 |
+|---|---|
+| PENDING | 최초 전송 대기 |
+| PROCESSING | 전송 작업 진행 중 |
+| SENT | 외부 플랫폼 전송 성공 |
+| FAILED | 전송 시도 실패, 재시도 가능 |
+
+상태 전이는 다음과 같습니다.
+
+- 최초 전송: `PENDING → PROCESSING → SENT 또는 FAILED`
+- 재시도: `FAILED → PROCESSING → SENT 또는 FAILED`
+
+관련 컬럼은 다음 기준으로 사용합니다.
+
+| 컬럼 | 의미 |
+|---|---|
+| attempt_count | 실제 전송 시도 횟수입니다. 최초 값은 0입니다. |
+| next_attempt_at | 실패 후 다음 전송을 시도할 수 있는 시각입니다. |
+| processing_started_at | 현재 전송 작업을 시작한 시각입니다. |
+| last_error | 최근 전송 실패 원인입니다. |
+| sent_at | 전송 성공 시각입니다. 성공 전에는 NULL입니다. |
+
+외부 전송 실패는 이미 완료된 주문과 포인트 결제를 롤백시키지 않습니다.
+재시도 과정에서 중복 전송이 발생할 수 있으므로 Outbox ID를 이벤트 식별값으로 전달합니다.
+
+### Enum 저장 방식
+
+`@Enumerated(EnumType.STRING)`을 사용하여 Enum 이름을 DB에 저장합니다.
+숫자 순서에 의존하지 않아 Enum 선언 순서가 변경되어도 기존 데이터의 의미가 유지됩니다.
+
 ## API 명세서
 
 ### API 설계 기준
@@ -35,6 +86,8 @@
   "message": "포인트가 부족합니다."
 }
 ```
+
+
 
 ### 1. 커피 메뉴 목록 조회
 
