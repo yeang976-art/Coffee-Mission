@@ -1,6 +1,8 @@
 package com.example.coffeeshop.domain.wallet.entity;
 
 import com.example.coffeeshop.domain.user.entity.User;
+import com.example.coffeeshop.common.exception.BusinessException;
+import com.example.coffeeshop.common.exception.ErrorCode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
@@ -41,8 +43,30 @@ public class PointWallet {
     private Long balance;
 
     public PointWallet(User user, Long balance) {
+        if (balance == null || balance < 0) {
+            throw new IllegalArgumentException("초기 잔액은 0 이상이어야 합니다.");
+        }
         this.user = user;
         this.balance = balance;
     }
 
+    public void charge(long amount) {
+        if (amount <= 0) {
+            throw new BusinessException(ErrorCode.INVALID_POINT_AMOUNT);
+        }
+        if (amount > Long.MAX_VALUE - balance) {
+            throw new BusinessException(ErrorCode.POINT_BALANCE_OVERFLOW);
+        }
+        this.balance += amount;
+    }
+
+    public void spend(long amount) {
+        if (amount <= 0) {
+            throw new IllegalArgumentException("결제 금액은 양수여야 합니다.");
+        }
+        if (balance < amount) {
+            throw new BusinessException(ErrorCode.INSUFFICIENT_POINT);
+        }
+        this.balance -= amount;
+    }
 }
