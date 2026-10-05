@@ -11,17 +11,16 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.Index;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.awt.*;
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Getter
 @Entity
-@Table(name = "coffee_orders")
+@Table(name = "coffee_orders", indexes = @Index(name = "idx_orders_ordered_at_menu", columnList = "ordered_at, menu_id"))
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class CoffeeOrder {
     @Id
@@ -43,9 +42,13 @@ public class CoffeeOrder {
     private LocalDateTime orderedAt;
 
     public CoffeeOrder(User user, CoffeeMenu coffeeMenu, Long paidPrice) {
+        this(user, coffeeMenu, paidPrice, LocalDateTime.now(java.time.ZoneOffset.UTC));
+    }
+
+    public CoffeeOrder(User user, CoffeeMenu coffeeMenu, Long paidPrice, LocalDateTime orderedAt) {
         this.user = user;
         this.coffeeMenu = coffeeMenu;
         this.paidPrice = paidPrice;
-        this.orderedAt = LocalDateTime.now();
+        this.orderedAt = orderedAt;
     }
 }

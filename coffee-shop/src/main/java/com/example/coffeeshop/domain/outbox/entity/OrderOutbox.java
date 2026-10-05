@@ -1,9 +1,9 @@
 package com.example.coffeeshop.domain.outbox.entity;
 
-import com.example.coffeeshop.common.timestamp.BaseTimeEntity;
 import com.example.coffeeshop.domain.order.entity.CoffeeOrder;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EntityListeners;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
@@ -16,20 +16,27 @@ import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.springframework.data.annotation.CreatedDate;
+import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.LocalDateTime;
 
+@EntityListeners(AuditingEntityListener.class)
 @Getter
 @Entity
 @Table(name = "order_outbox")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class OrderOutbox extends BaseTimeEntity {
+public class OrderOutbox {
+    @CreatedDate
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "order_id", nullable = false)
+    @JoinColumn(name = "order_id", nullable = false, unique = true)
     private CoffeeOrder coffeeOrder;
 
     @Enumerated(EnumType.STRING)
@@ -45,7 +52,7 @@ public class OrderOutbox extends BaseTimeEntity {
     @Column(name = "processing_started_at")
     private LocalDateTime processingStartedAt;
 
-    @Column(name = "last_error")
+    @Column(name = "last_error", length = 1000)
     private String lastError;
 
     @Column(name = "sent_at")

@@ -1,10 +1,10 @@
 package com.example.coffeeshop.domain.history.entity;
 
-import com.example.coffeeshop.common.timestamp.BaseTimeEntity;
 import com.example.coffeeshop.domain.order.entity.CoffeeOrder;
 import com.example.coffeeshop.domain.wallet.entity.PointWallet;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EntityListeners;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
@@ -17,12 +17,21 @@ import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.springframework.data.annotation.CreatedDate;
+import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
+import java.time.LocalDateTime;
+
+@EntityListeners(AuditingEntityListener.class)
 @Getter
 @Entity
 @Table(name = "point_histories")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class PointHistory extends BaseTimeEntity {
+public class PointHistory {
+    @CreatedDate
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

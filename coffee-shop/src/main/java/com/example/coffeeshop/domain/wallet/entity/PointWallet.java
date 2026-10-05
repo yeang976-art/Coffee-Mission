@@ -1,9 +1,9 @@
 package com.example.coffeeshop.domain.wallet.entity;
 
-import com.example.coffeeshop.common.timestamp.BaseTimeEntity;
 import com.example.coffeeshop.domain.user.entity.User;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EntityListeners;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -14,12 +14,21 @@ import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.springframework.data.annotation.LastModifiedDate;
+import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
+import java.time.LocalDateTime;
+
+@EntityListeners(AuditingEntityListener.class)
 @Getter
 @Entity
 @Table(name = "point_wallets")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class PointWallet extends BaseTimeEntity {
+public class PointWallet {
+    @LastModifiedDate
+    @Column(name = "updated_at", nullable = false)
+    private LocalDateTime updatedAt;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -35,4 +44,5 @@ public class PointWallet extends BaseTimeEntity {
         this.user = user;
         this.balance = balance;
     }
+
 }
