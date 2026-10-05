@@ -55,19 +55,35 @@ public class OrderOutbox extends BaseTimeEntity {
         this.coffeeOrder = coffeeOrder;
         this.status = status;
         this.attemptCount = 0;
-        this.processingStartedAt = LocalDateTime.now();
-    }
-
-    public void trial() {
         
     }
 
+    public void trial() {
+        if (status != OutboxStatus.PENDING && status != OutboxStatus.FAILED) {
+            throw new IllegalStateException("전송 대기 또는 실패 기록만 처리할 수 있습니다.");
+        }
+        this.status = OutboxStatus.PROCESSING;
+        this.attemptCount++;
+        this.processingStartedAt = LocalDateTime.now(java.time.ZoneOffset.UTC);
+        this.nextAttemptAt = null;
+    }
+
     public void error(String lastError) {
+        if (status != OutboxStatus.PROCESSING) {
+            throw new IllegalStateException("처리 중인 기록만 실패로 변경할 수 있습니다.");
+        }
+        this.status = OutboxStatus.FAILED;
         this.lastError = lastError;
-        this.nextAttemptAt = LocalDateTime.now();
+        this.nextAttemptAt = LocalDateTime.now(java.time.ZoneOffset.UTC);
     }
 
     public void success() {
-        this.sentAt = LocalDateTime.now();
+        if (status != OutboxStatus.PROCESSING) {
+            throw new IllegalStateException("처리 중인 기록만 성공으로 변경할 수 있습니다.");
+        }
+        this.status = OutboxStatus.SENT;
+        this.lastError = null;
+        this.nextAttemptAt = null;
+        this.sentAt = LocalDateTime.now(java.time.ZoneOffset.UTC);
     }
 }
