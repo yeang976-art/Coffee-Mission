@@ -328,6 +328,18 @@ class OrderOutboxIntegrationTest {
         assertThat(outboxes.findById(id).orElseThrow().getStatus()).isEqualTo(OutboxStatus.FAILED);
     }
 
+
+    @Test
+    void 외부_3xx_응답은_전송_성공으로_기록하지_않는다() {
+        Long id = pendingFixture();
+        RESPONSE_STATUS.set(302);
+        outboxService.send(id);
+        OrderOutbox result = outboxes.findById(id).orElseThrow();
+        assertThat(result.getStatus()).isEqualTo(OutboxStatus.FAILED);
+        assertThat(result.getSentAt()).isNull();
+        assertThat(result.getLastError()).contains("302");
+    }
+
     @Test
     void 외부_응답_시간_초과는_실패_기록으로_남긴다() {
         Long id = pendingFixture();

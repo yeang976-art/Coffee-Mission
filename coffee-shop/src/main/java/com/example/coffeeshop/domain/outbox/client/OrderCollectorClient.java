@@ -23,8 +23,12 @@ public class OrderCollectorClient {
     }
 
     public void send(OrderTransmission payload) {
-        client.post().uri(url).contentType(MediaType.APPLICATION_JSON)
+        var response = client.post().uri(url).contentType(MediaType.APPLICATION_JSON)
                 .header("Idempotency-Key", payload.eventId().toString())
                 .body(payload).retrieve().toBodilessEntity();
+        if (!response.getStatusCode().is2xxSuccessful()) {
+            throw new IllegalStateException("외부 플랫폼 응답이 성공 상태가 아닙니다. status="
+                    + response.getStatusCode().value());
+        }
     }
 }
