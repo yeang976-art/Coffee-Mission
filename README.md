@@ -1,8 +1,10 @@
-# Solution Architecture
+# Coffee Mission
+
+고정 캐릭터 한 명이 주문을 안내하는 화면을 연결할 수 있도록 설계한 커피 주문 과제의 백엔드입니다. 캐릭터는 UI 컨셉으로만 참고하며, 이번 구현은 커피 메뉴·포인트·주문·외부 전송에 집중합니다.
 
 ## 구현 현황
 
-현재는 기본 API와 주문 트랜잭션을 구현한 단계입니다. 외부 플랫폼 전송까지 완료된 상태는 아닙니다.
+필수 API 5개와 주문 데이터 외부 전송을 구현했습니다. H2 기반 테스트 41개와 실제 MySQL 동시성 테스트 3개가 통과했습니다.
 
 | 항목 | 현재 상태 |
 |---|---|
@@ -11,18 +13,108 @@
 | 주문 및 포인트 결제 | 구현 완료 |
 | 주문·포인트 이력·Outbox의 원자적 저장 | 구현 완료, H2 롤백 테스트 통과 |
 | 최근 7일 인기 메뉴 TOP 3 | 구현 완료 |
-| 지갑 비관적 락 | 충전과 주문에 적용, MySQL 동시 요청 검증은 남아 있습니다. |
+| 지갑 비관적 락 | 충전과 주문에 적용, 실제 MySQL 동시 요청 검증 완료 |
 | Outbox 상태 변경 | 구현 완료, 단위 테스트 통과 |
-| 외부 플랫폼 전송·재시도 작업자 | 미구현 |
-| 중단된 PROCESSING 복구·중복 전송 처리 | 미구현 |
+| 외부 플랫폼 전송·재시도 작업자 | 구현 완료, 로컬 Mock HTTP 서버 검증 완료 |
+| 중단된 PROCESSING 복구·중복 전송 처리 | 복구 및 작업자 경쟁 검증 완료, 수신 측 eventId 중복 구별 |
 
 사용자와 지갑, 메뉴는 사전에 준비된 데이터를 사용합니다. 회원가입·로그인·관리자 메뉴 API는 추가하지 않습니다.
 DB에 저장하는 시각은 UTC 기준의 LocalDateTime이며 주문 API에서는 UTC Instant로 변환해 반환합니다.
 생성 시각만 필요한 엔티티와 갱신 시각만 필요한 지갑은 ERD에 맞는 시각 필드를 직접 매핑합니다.
 
+
+## 실행 방법
+
+### 1. 실행 환경과 DB 설정
+
+- Java 21
+- MySQL: 로컬 검증은 9.7.1에서 진행했습니다.
+- Windows 예시는 PowerShell 7 기준입니다.
+
+MySQL에서 과제 DB를 준비합니다.
+
+```sql
+CREATE DATABASE IF NOT EXISTS coffee_shop CHARACTER SET utf8mb4;
+```
+
+coffee-shop 디렉터리에서 실행합니다. DB 계정에는 해당 DB의 테이블 생성·조회·변경 권한이 필요합니다.
+
+```powershell
+$env:JAVA_HOME = '본인의 JDK 21 설치 경로'
+$env:DB_USERNAME = '본인의 DB 계정'
+$env:DB_PASSWORD = Read-Host 'DB 비밀번호' -MaskInput
+$env:DB_URL = 'jdbc:mysql://localhost:3306/coffee_shop?serverTimezone=UTC'
+```
+
+IntelliJ에서 실행할 때는 Run Configuration에 같은 환경변수를 설정합니다. IntelliJ 설정은 별도로 열린 터미널에 자동 적용되지 않습니다.
+
+### 2. Mock 수집 서버 실행
+
+별도 터미널에서 Java 21로 실행합니다.
+
+```powershell
+& "$env:JAVA_HOME/bin/java.exe" ./scripts/MockOrderCollector.java
+```
+
+기본 주소는 http://127.0.0.1:9090/orders입니다. 받은 주문을 콘솔에 출력하며, 같은 실행 중에 수신한 eventId는 중복 처리하지 않습니다.
+실패 응답을 확인하려면 두 번째 인자로 HTTP 상태 코드를 지정합니다.
+
+```powershell
+& "$env:JAVA_HOME/bin/java.exe" ./scripts/MockOrderCollector.java 9090 500
+```
+
+### 3. 애플리케이션 실행
+
+DB 환경변수를 설정한 터미널에서 외부 전송을 활성화합니다.
+
+```powershell
+$env:OUTBOX_ENABLED = 'true'
+$env:ORDER_COLLECTOR_URL = 'http://127.0.0.1:9090/orders'
+.\gradlew.bat bootRun
+```
+
+외부 전송의 기본 설정은 비활성화입니다. OUTBOX_ENABLED가 false인 동안에도 주문과 Outbox는 저장되며, true로 실행하면 대기 기록을 처리합니다.
+
+### 4. 초기 데이터 준비
+
+애플리케이션이 테이블을 생성한 뒤 DB 클라이언트에서 scripts/demo-data.sql을 실행합니다.
+
+- demo@example.com 사용자와 잔액 0P 지갑
+- 아메리카노 4,500원 / 카페라떼 5,000원 / 카페모카 5,500원
+- 마지막 SELECT에서 테스트용 userId 확인
+
+스크립트를 다시 실행해도 기존 데모 지갑 잔액을 변경하지 않습니다. 조회한 userId와 메뉴 API의 menuId를 사용해 충전 후 주문합니다.
+
+### 5. 실행 JAR 빌드
+
+```powershell
+.\gradlew.bat bootJar
+& "$env:JAVA_HOME/bin/java.exe" -jar ./build/libs/coffee-shop-0.0.1-SNAPSHOT.jar
+```
+
+기본 API 주소는 http://localhost:8080입니다.
+
 ## ERD
 
 <img width="1300" height="724" alt="image" src="https://github.com/user-attachments/assets/421bf7b9-c644-4bbe-8eca-8f665badc0a0" />
+
+
+### 테이블 구성
+
+| 테이블 | 주요 컬럼 | 제약 및 관계 |
+|---|---|---|
+| users | id, email, created_at | id PK, email NOT NULL·UNIQUE |
+| coffee_menus | id, name, price, active | id PK, 이름·가격·판매 여부 NOT NULL |
+| point_wallets | id, user_id, balance, updated_at | id PK, user_id FK·NOT NULL·UNIQUE, 사용자당 지갑 1개 |
+| point_histories | id, wallet_id, order_id, type, amount, balance_after, created_at | id PK, wallet_id FK·NOT NULL, order_id FK·UNIQUE·NULL 허용 |
+| coffee_orders | id, user_id, menu_id, paid_price, ordered_at | id PK, user_id·menu_id FK·NOT NULL, 결제 당시 가격 저장 |
+| order_outbox | id, order_id, status, attempt_count, next_attempt_at, processing_started_at, last_error, sent_at, created_at | id PK, order_id FK·NOT NULL·UNIQUE, 대기·처리·실패·완료 상태 관리 |
+
+- 사용자는 여러 주문을 생성하며, 각 주문은 메뉴 하나를 참조합니다.
+- 지갑에는 여러 충전·사용 이력이 연결됩니다. 충전 이력의 order_id는 NULL이고, 사용 이력은 결제 주문에 연결됩니다.
+- 주문 하나에는 Outbox 하나가 연결됩니다.
+- Outbox의 다음 시도·처리 시작·오류·전송 완료 정보는 해당 상태에 따라 NULL일 수 있습니다.
+- 최근 주문 집계를 위해 coffee_orders의 (ordered_at, menu_id) 인덱스를 사용합니다.
 
 ## Enum 설계
 
@@ -61,7 +153,7 @@ DB에 저장하는 시각은 UTC 기준의 LocalDateTime이며 주문 API에서�
 
 | 컬럼 | 의미 |
 |---|---|
-| attempt_count | 실제 전송 시도 횟수입니다. 최초 값은 0입니다. |
+| attempt_count | 전송 처리 권한을 획득한 횟수입니다. 최초 값은 0이며, HTTP 호출 전 중단된 시도도 포함될 수 있습니다. |
 | next_attempt_at | 실패 후 다음 전송을 시도할 수 있는 시각입니다. |
 | processing_started_at | 현재 전송 작업을 시작한 시각입니다. |
 | last_error | 최근 전송 실패 원인입니다. |
@@ -328,10 +420,10 @@ DB에 저장하는 시각은 UTC 기준의 LocalDateTime이며 주문 API에서�
 | 현재 포인트 조회 | `GET /api/points` |
 | 커피 주문 및 결제 | `POST /api/orders` |
 | 최근 7일 인기 메뉴 TOP 3 | `GET /api/coffee-menus/popular` |
-| 결제 주문의 외부 전송 | 주문과 함께 Outbox 기록 저장 완료. 외부 전송 작업자는 구현 예정입니다. |
+| 결제 주문의 외부 전송 | 주문 커밋 후 비동기 HTTP 전송, Outbox 기반 재시도 |
 | 동시 주문 시 잔액 정합성 | 주문과 충전 시 동일한 사용자 지갑 행을 비관적 락으로 조회 |
 
-공개 **필수 API는 위 5개**이며, 현재 선택 API는 없습니다. 외부 전송은 주문 커밋 후 시도하고 실패 시 Outbox를 바탕으로 재시도하도록 설계했습니다. 현재는 Outbox 저장과 상태 변경까지 구현했으며, 실제 전송 작업자는 구현 예정입니다.
+공개 **필수 API는 위 5개**이며, 현재 선택 API는 없습니다. 외부 전송은 주문 커밋 후 시도하고 실패 시 Outbox를 바탕으로 재시도하도록 설계했습니다. 공개 Outbox 관리 API 없이 내부 이벤트와 주기 작업으로 전송합니다.
 
 ## 설계의 의도
 
@@ -370,48 +462,113 @@ DB에 저장하는 시각은 UTC 기준의 LocalDateTime이며 주문 API에서�
 
 Outbox 방식은 전송 실패 후 재시도하므로 같은 주문 데이터가 두 번 전달될 가능성이 있습니다. 전송 시 Outbox ID를 이벤트 식별값으로 함께 전달해 중복을 구별할 수 있도록 설계합니다.
 
-## 테스트
 
-테스트는 test 프로필의 H2 인메모리 DB를 사용합니다. 테스트 DB는 실행 시 생성되며 로컬 MySQL을 사용하지 않습니다.
-H2의 MySQL 모드는 SQL 호환을 위한 설정이며, 실제 MySQL의 락 동작을 검증한 결과를 의미하지 않습니다.
+## 외부 전송 처리 흐름
 
-Java 21 환경에서 coffee-shop 디렉터리의 다음 명령으로 실행합니다.
+1. 주문 트랜잭션에서 지갑 차감, 주문, 사용 이력, PENDING Outbox를 함께 저장합니다.
+2. 커밋 후 이벤트로 전송을 시작합니다. 이벤트 작업을 놓친 경우에도 1초 주기 조회가 대기 기록을 확인합니다.
+3. 별도의 짧은 트랜잭션에서 Outbox 행을 비관적 락으로 조회하고 PROCESSING으로 변경합니다.
+4. 트랜잭션을 종료한 뒤 HTTP POST로 주문 데이터를 전송합니다. HTTP 연결·응답 대기 시간은 각각 기본 2초입니다.
+5. 2xx 응답이면 SENT를 저장합니다. 실패하면 FAILED와 오류 메시지, 5초 뒤의 next_attempt_at을 저장합니다.
+6. PROCESSING이 기본 60초 이상 유지되면 다시 시도합니다. 이전 시도의 늦은 완료·실패 처리는 attempt_count를 비교해 반영하지 않습니다.
 
-```bash
-./gradlew test
+전송 예시:
+
+```json
+{
+  "eventId": 1,
+  "orderId": 1,
+  "userId": 1,
+  "menuId": 1,
+  "paidPrice": 4500
+}
 ```
 
-Windows에서는 다음 명령을 사용합니다.
+Idempotency-Key 헤더에는 eventId를 전달합니다. 결제 금액은 현재 메뉴 가격이 아니라 주문의 paid_price를 사용합니다.
+
+외부 전송은 적어도 한 번 전달하는 방식입니다. 외부 수신은 성공했지만 SENT 저장 전에 서버가 중단되면 같은 이벤트가 다시 전달될 수 있습니다.
+수신 플랫폼은 eventId를 기준으로 중복을 구별해야 합니다. Mock 서버는 실행 중 메모리에서 중복을 구별하며, 재시작 후에도 유지되는 저장 방식은 실제 수신 플랫폼의 책임입니다.
+이번 범위에서는 실패 기록을 고정 간격으로 계속 재시도하며, 최종 실패 격리 기능은 추가하지 않습니다.
+
+
+## 테스트
+
+### H2 테스트
+
+test 프로필의 H2 인메모리 DB를 사용하며 로컬 MySQL의 과제 DB에는 접근하지 않습니다.
+H2의 MySQL 모드는 SQL 호환 설정이므로, 실제 MySQL 동시성 검증은 별도로 실행합니다.
+
+Java 21 환경에서 coffee-shop 디렉터리에서 실행합니다.
 
 ```powershell
 .\gradlew.bat test
 ```
 
+macOS/Linux에서는 ./gradlew test를 사용합니다.
+
+### 실제 MySQL 동시성 테스트
+
+MySQL 클라이언트와 로컬 MySQL 서버가 필요하며, 설정한 계정에는 테스트 DB 생성·삭제 권한이 필요합니다.
+현재 터미널에 DB_USERNAME·DB_PASSWORD를 설정한 뒤 실행합니다.
+
+```powershell
+.\scripts\test-mysql.ps1 -MySqlPath '본인의 mysql 실행 파일 경로'
+```
+
+PATH에 mysql이 등록되어 있다면 -MySqlPath를 생략할 수 있습니다.
+스크립트는 coffee_mission_test_로 시작하는 임시 DB를 새로 만들고, 검증 후 해당 DB만 정리합니다.
+mysqlTest는 매번 실행되도록 설정해 새 DB를 생성했는데도 UP-TO-DATE로 검증이 생략되는 것을 방지합니다.
+
+수동으로 별도 테스트 DB를 준비했다면 MYSQL_TEST_URL·MYSQL_TEST_USERNAME·MYSQL_TEST_PASSWORD를 설정하고 다음 명령을 사용할 수 있습니다.
+MYSQL_TEST_URL은 localhost 또는 127.0.0.1의 coffee_mission_test_ DB만 허용합니다. 이 DB에는 create-drop이 적용됩니다.
+
+```powershell
+.\gradlew.bat mysqlTest
+```
+
 ### 검증 결과
 
-2026-10-05 실행 결과: **29개 통과, 실패 0개, 오류 0개, 제외 0개**입니다.
+2026-10-06 최종 결과: **H2 기반 41개 통과 + 실제 MySQL 3개 통과, 실패 0개, 오류 0개**입니다.
 
 | 테스트 클래스 | 개수 | 검증 내용 |
 |---|---:|---|
-| CoffeeShopApplicationTests | 1 | test 프로필에서 애플리케이션 구동 |
-| PointWalletTest | 6 | 충전·차감, 잘못된 충전 금액, 잔액 부족, 오버플로 |
+| CoffeeShopApplicationTests | 1 | test 프로필 애플리케이션 구동 |
+| PointWalletTest | 6 | 충전·차감, 잘못된 금액, 잔액 부족, 오버플로 |
 | OrderOutboxTest | 4 | 초기 상태, 처리 시작, 성공·실패 상태 변경 |
-| CoffeeWorkflowIntegrationTest | 17 | 5개 API, 이력 저장, 가격 보존, 최근 7일 집계, UNIQUE 제약 |
+| CoffeeWorkflowIntegrationTest | 17 | API 5개, 이력, 가격 보존, 7일 집계 경계·동률·TOP 3, UNIQUE 제약 |
 | OrderRollbackIntegrationTest | 1 | Outbox 저장 실패 시 차감·주문·이력 롤백 |
+| WalletConcurrencyIntegrationTest | 2 | 동시 주문, 충전·주문 동시 실행 |
+| OrderOutboxIntegrationTest | 10 | 커밋 후 실제 HTTP 전송, 롤백 시 미전송, 500·302·시간 초과, 재시도, 작업자 경쟁, 중단 복구, 중복 이벤트, 오류 길이 |
+| MySqlWalletConcurrencyIntegrationTest | 3 | 실제 MySQL 동시 주문, 충전·주문 동시 실행, 두 애플리케이션 컨텍스트의 동시 주문 |
 
-아직 검증하지 않은 항목은 다음과 같습니다.
+실제 MySQL에서 확인한 주요 결과는 다음과 같습니다.
 
-- 실제 MySQL에서 동시 주문 및 충전 시 잔액 정합성
-- 외부 HTTP 전송 실패와 재시도
-- 여러 전송 작업자의 중복 처리 방지
-- 중단된 PROCESSING 기록 복구
+| 상황 | 결과 |
+|---|---|
+| 잔액 10,000P, 메뉴 4,500P, 동시 주문 20건 | 성공 2건·잔액 부족 18건, 잔액 1,000P, 주문·사용 이력·Outbox 각각 2건 |
+| 잔액 30,000P, 1,000P 충전 20건 + 1,000P 주문 20건 | 40건 성공, 최종 잔액 30,000P, 주문 20건·이력 40건 |
+| 같은 DB를 사용하는 두 Spring 컨텍스트·별도 연결 풀 | 동시 주문 20건 중 성공 2건·잔액 부족 18건, 잔액 1,000P |
+
+두 컨텍스트 검증은 같은 JVM 안에서 수행했으며, 별도 서버 배포 환경의 부하 테스트를 의미하지 않습니다.
+Outbox 작업자 경쟁·복구 테스트는 H2와 로컬 Mock HTTP 서버를 사용했습니다.
+
+실행 JAR와 실제 MySQL 임시 DB에서도 API 5개를 순서대로 요청해 확인했습니다.
+10,000P 충전 → 4,500P 결제 → 잔액 5,500P → 인기 메뉴 주문 횟수 1 → 외부 HTTP 수신 및 Outbox SENT를 확인했습니다.
+초기 데이터 SQL은 같은 DB에서 두 번 실행해 메뉴 3개가 유지되는 것도 확인했습니다.
+
+테스트 리포트는 coffee-shop/build/reports/tests/test/index.html 및 coffee-shop/build/reports/tests/mysqlTest/index.html에서 확인할 수 있습니다.
 
 ## 트러블슈팅
 
-실제로 실패한 테스트와 수정 내용을 문제별로 기록했습니다.
+실제로 발생한 테스트 실패와 실행 환경 문제를 원인별로 기록했습니다. 운영 장애와 테스트 재현 상황은 구분합니다.
 
 - [Outbox 대기 기록에 처리 시작 시각이 저장되는 문제](https://app.notion.com/p/3f0b4dedb89481e5bc45e3be4063b5d2)
 - [Outbox 전송 메서드에서 상태 변경이 누락된 문제](https://app.notion.com/p/3f0b4dedb89481a69440ed81d79fc9b8)
 
-수정 전 OrderOutboxTest 4개가 실패했으며, 수정 후 동일한 4개가 통과했습니다.
+- [MySQL 검증에서 환경변수 표현식을 계정 값으로 전달한 문제](https://app.notion.com/p/3f1b4dedb894819da629c6b0cb92bf5c)
+- [PowerShell 변수 경계 때문에 MySQL 테스트 URL이 손상된 문제](https://app.notion.com/p/3f1b4dedb894812b88aeca858e8d90fb)
+- [외부 302 응답을 Outbox 전송 성공으로 기록한 문제](https://app.notion.com/p/3f1b4dedb89481cb83e7ea36f03ba9ea)
+- [새 MySQL 테스트 DB에서도 Gradle이 검증을 생략한 문제](https://app.notion.com/p/3f1b4dedb894819b9001fd50ec493113)
+
+초기 OrderOutboxTest 4개 실패, MySQL 테스트 환경 초기화 실패, 302 응답 회귀 테스트 실패를 실제 로그와 재검증 결과로 기록했습니다.
 주문 롤백 테스트에서 의도적으로 발생시킨 Outbox 저장 예외는 검증용 상황이며, 실제 장애 기록으로 작성하지 않았습니다.
