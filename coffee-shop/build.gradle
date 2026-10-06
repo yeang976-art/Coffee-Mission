@@ -35,5 +35,22 @@ dependencies {
 }
 
 tasks.named('test') {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags 'mysql'
+    }
+}
+
+tasks.register('mysqlTest', Test) {
+    description = '별도 로컬 MySQL 테스트 DB에서 동시성 테스트를 실행합니다.'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'mysql'
+    }
+    doFirst {
+        if (!System.getenv('MYSQL_TEST_URL')) {
+            throw new GradleException('MYSQL_TEST_URL, MYSQL_TEST_USERNAME, MYSQL_TEST_PASSWORD를 설정해주세요.')
+        }
+    }
 }
