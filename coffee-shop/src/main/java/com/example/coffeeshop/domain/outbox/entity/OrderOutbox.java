@@ -62,35 +62,46 @@ public class OrderOutbox {
         this.coffeeOrder = coffeeOrder;
         this.status = status;
         this.attemptCount = 0;
-        
     }
 
     public void trial() {
+        trial(LocalDateTime.now(java.time.ZoneOffset.UTC));
+    }
+
+    public void trial(LocalDateTime startedAt) {
         if (status != OutboxStatus.PENDING && status != OutboxStatus.FAILED) {
             throw new IllegalStateException("전송 대기 또는 실패 기록만 처리할 수 있습니다.");
         }
         this.status = OutboxStatus.PROCESSING;
         this.attemptCount++;
-        this.processingStartedAt = LocalDateTime.now(java.time.ZoneOffset.UTC);
+        this.processingStartedAt = startedAt;
         this.nextAttemptAt = null;
     }
 
     public void error(String lastError) {
+        error(lastError, LocalDateTime.now(java.time.ZoneOffset.UTC));
+    }
+
+    public void error(String lastError, LocalDateTime retryAt) {
         if (status != OutboxStatus.PROCESSING) {
             throw new IllegalStateException("처리 중인 기록만 실패로 변경할 수 있습니다.");
         }
         this.status = OutboxStatus.FAILED;
-        this.lastError = lastError;
-        this.nextAttemptAt = LocalDateTime.now(java.time.ZoneOffset.UTC);
+        this.lastError = lastError == null ? "전송 실패" : lastError.substring(0, Math.min(lastError.length(), 1000));
+        this.nextAttemptAt = retryAt;
     }
 
     public void success() {
+        success(LocalDateTime.now(java.time.ZoneOffset.UTC));
+    }
+
+    public void success(LocalDateTime completedAt) {
         if (status != OutboxStatus.PROCESSING) {
             throw new IllegalStateException("처리 중인 기록만 성공으로 변경할 수 있습니다.");
         }
         this.status = OutboxStatus.SENT;
         this.lastError = null;
         this.nextAttemptAt = null;
-        this.sentAt = LocalDateTime.now(java.time.ZoneOffset.UTC);
+        this.sentAt = completedAt;
     }
 }

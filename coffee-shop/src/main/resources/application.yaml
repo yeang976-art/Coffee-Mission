@@ -16,3 +16,12 @@ spring:
     properties:
       hibernate:
         format_sql: true
+outbox:
+  enabled: ${OUTBOX_ENABLED:false}
+  url: ${ORDER_COLLECTOR_URL:http://localhost:9090/orders}
+  batch-size: 10
+  retry-delay-seconds: 5
+  lease-seconds: 60
+  request-timeout-millis: 2000
+  poll-delay-ms: 1000
+  poll-initial-delay-ms: 1000

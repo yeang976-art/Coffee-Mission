@@ -12,6 +12,7 @@ import com.example.coffeeshop.domain.order.entity.CoffeeOrder;
 import com.example.coffeeshop.domain.order.repository.CoffeeOrderRepository;
 import com.example.coffeeshop.domain.outbox.entity.OrderOutbox;
 import com.example.coffeeshop.domain.outbox.entity.OutboxStatus;
+import com.example.coffeeshop.domain.outbox.event.OrderOutboxCreatedEvent;
 import com.example.coffeeshop.domain.outbox.repository.OrderOutboxRepository;
 import com.example.coffeeshop.domain.user.entity.User;
 import com.example.coffeeshop.domain.user.repository.UserRepository;
@@ -19,6 +20,7 @@ import com.example.coffeeshop.domain.wallet.entity.PointWallet;
 import com.example.coffeeshop.domain.wallet.repository.PointWalletRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
@@ -35,6 +37,7 @@ public class CoffeeOrderService {
     private final PointHistoryRepository pointHistoryRepository;
     private final OrderOutboxRepository orderOutboxRepository;
     private final Clock clock;
+    private final ApplicationEventPublisher events;
 
     @Transactional
     public CoffeeOrderResponse order(Long userId, Long menuId) {
@@ -55,7 +58,8 @@ public class CoffeeOrderService {
         wallet.spend(paidPrice);
         CoffeeOrder order = coffeeOrderRepository.save(new CoffeeOrder(user, menu, paidPrice, LocalDateTime.now(clock)));
         pointHistoryRepository.save(new PointHistory(wallet, order, PointHistoryType.SPEND, paidPrice, wallet.getBalance()));
-        orderOutboxRepository.save(new OrderOutbox(order, OutboxStatus.PENDING));
+        OrderOutbox outbox = orderOutboxRepository.save(new OrderOutbox(order, OutboxStatus.PENDING));
+        events.publishEvent(new OrderOutboxCreatedEvent(outbox.getId()));
 
         return new CoffeeOrderResponse(order.getId(), userId, menuId, paidPrice, wallet.getBalance(),
                 order.getOrderedAt().toInstant(ZoneOffset.UTC));
