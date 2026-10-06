@@ -43,6 +43,8 @@ tasks.named('test') {
 tasks.register('mysqlTest', Test) {
     description = '별도 로컬 MySQL 테스트 DB에서 동시성 테스트를 실행합니다.'
     group = 'verification'
+    outputs.upToDateWhen { false }
+    outputs.cacheIf { false }
     testClassesDirs = sourceSets.test.output.classesDirs
     classpath = sourceSets.test.runtimeClasspath
     useJUnitPlatform {
