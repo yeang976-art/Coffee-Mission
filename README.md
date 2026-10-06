@@ -48,44 +48,50 @@ $env:DB_URL = 'jdbc:mysql://localhost:3306/coffee_shop?serverTimezone=UTC'
 
 IntelliJ에서 실행할 때는 Run Configuration에 같은 환경변수를 설정합니다. IntelliJ 설정은 별도로 열린 터미널에 자동 적용되지 않습니다.
 
-### 2. Mock 수집 서버 실행
+### 2. 애플리케이션 실행
 
-별도 터미널에서 Java 21로 실행합니다.
-
-```powershell
-& "$env:JAVA_HOME/bin/java.exe" ./scripts/MockOrderCollector.java
-```
-
-기본 주소는 http://127.0.0.1:9090/orders입니다. 받은 주문을 콘솔에 출력하며, 같은 실행 중에 수신한 eventId는 중복 처리하지 않습니다.
-실패 응답을 확인하려면 두 번째 인자로 HTTP 상태 코드를 지정합니다.
+DB 환경변수를 설정한 터미널에서 실행합니다.
 
 ```powershell
-& "$env:JAVA_HOME/bin/java.exe" ./scripts/MockOrderCollector.java 9090 500
-```
-
-### 3. 애플리케이션 실행
-
-DB 환경변수를 설정한 터미널에서 외부 전송을 활성화합니다.
-
-```powershell
-$env:OUTBOX_ENABLED = 'true'
-$env:ORDER_COLLECTOR_URL = 'http://127.0.0.1:9090/orders'
 .\gradlew.bat bootRun
 ```
 
-외부 전송의 기본 설정은 비활성화입니다. OUTBOX_ENABLED가 false인 동안에도 주문과 Outbox는 저장되며, true로 실행하면 대기 기록을 처리합니다.
+외부 전송은 기본적으로 비활성화되어 있으며, 주문과 Outbox 기록은 저장됩니다.
+실행 중인 외부 수집 플랫폼이 있다면 해당 주소를 설정한 뒤 실행합니다. 아래 URL은 설정 예시입니다.
 
-### 4. 초기 데이터 준비
+```powershell
+$env:OUTBOX_ENABLED = 'true'
+$env:ORDER_COLLECTOR_URL = 'http://localhost:9090/orders'
+.\gradlew.bat bootRun
+```
 
-애플리케이션이 테이블을 생성한 뒤 DB 클라이언트에서 scripts/demo-data.sql을 실행합니다.
+외부 전송·실패·재시도는 OrderOutboxIntegrationTest의 Mock HTTP 서버로 검증합니다.
 
-- demo@example.com 사용자와 잔액 0P 지갑
-- 아메리카노 4,500원 / 카페라떼 5,000원 / 카페모카 5,500원
-- 마지막 SELECT에서 테스트용 userId 확인
+### 3. 초기 데이터 준비
 
-스크립트를 다시 실행해도 기존 데모 지갑 잔액을 변경하지 않습니다. 조회한 userId와 메뉴 API의 menuId를 사용해 충전 후 주문합니다.
+애플리케이션이 테이블을 생성한 뒤 DB 클라이언트에서 사용자·지갑·메뉴를 준비합니다.
+데이터가 없는 과제 DB에서는 다음 예시를 한 번 실행할 수 있습니다.
 
-### 5. 실행 JAR 빌드
+```sql
+INSERT INTO users (email, created_at)
+VALUES ('demo@example.com', UTC_TIMESTAMP(6));
+
+SET @user_id = LAST_INSERT_ID();
+
+INSERT INTO point_wallets (user_id, balance, updated_at)
+VALUES (@user_id, 0, UTC_TIMESTAMP(6));
+
+INSERT INTO coffee_menus (name, price, active)
+VALUES ('아메리카노', 4500, TRUE),
+       ('카페라떼', 5000, TRUE),
+       ('카페모카', 5500, TRUE);
+
+SELECT @user_id AS user_id;
+```
+
+기존 데이터가 있다면 해당 사용자의 userId와 메뉴 API의 menuId를 사용해 충전 후 주문합니다.
+
+### 4. 실행 JAR 빌드
 
 ```powershell
 .\gradlew.bat bootJar
@@ -487,7 +493,7 @@ Outbox 방식은 전송 실패 후 재시도하므로 같은 주문 데이터가
 Idempotency-Key 헤더에는 eventId를 전달합니다. 결제 금액은 현재 메뉴 가격이 아니라 주문의 paid_price를 사용합니다.
 
 외부 전송은 적어도 한 번 전달하는 방식입니다. 외부 수신은 성공했지만 SENT 저장 전에 서버가 중단되면 같은 이벤트가 다시 전달될 수 있습니다.
-수신 플랫폼은 eventId를 기준으로 중복을 구별해야 합니다. Mock 서버는 실행 중 메모리에서 중복을 구별하며, 재시작 후에도 유지되는 저장 방식은 실제 수신 플랫폼의 책임입니다.
+수신 플랫폼은 eventId를 기준으로 중복을 구별해야 합니다. 통합 테스트의 Mock HTTP 서버는 메모리에서 중복을 구별하며, 재시작 후에도 유지되는 저장 방식은 실제 수신 플랫폼의 책임입니다.
 이번 범위에서는 실패 기록을 고정 간격으로 계속 재시도하며, 최종 실패 격리 기능은 추가하지 않습니다.
 
 
@@ -508,23 +514,24 @@ macOS/Linux에서는 ./gradlew test를 사용합니다.
 
 ### 실제 MySQL 동시성 테스트
 
-MySQL 클라이언트와 로컬 MySQL 서버가 필요하며, 설정한 계정에는 테스트 DB 생성·삭제 권한이 필요합니다.
-현재 터미널에 DB_USERNAME·DB_PASSWORD를 설정한 뒤 실행합니다.
+로컬 MySQL에 검증 전용 DB를 별도로 생성합니다.
 
-```powershell
-.\scripts\test-mysql.ps1 -MySqlPath '본인의 mysql 실행 파일 경로'
+```sql
+CREATE DATABASE coffee_mission_test_local CHARACTER SET utf8mb4;
 ```
 
-PATH에 mysql이 등록되어 있다면 -MySqlPath를 생략할 수 있습니다.
-스크립트는 coffee_mission_test_로 시작하는 임시 DB를 새로 만들고, 검증 후 해당 DB만 정리합니다.
-mysqlTest는 매번 실행되도록 설정해 새 DB를 생성했는데도 UP-TO-DATE로 검증이 생략되는 것을 방지합니다.
-
-수동으로 별도 테스트 DB를 준비했다면 MYSQL_TEST_URL·MYSQL_TEST_USERNAME·MYSQL_TEST_PASSWORD를 설정하고 다음 명령을 사용할 수 있습니다.
-MYSQL_TEST_URL은 localhost 또는 127.0.0.1의 coffee_mission_test_ DB만 허용합니다. 이 DB에는 create-drop이 적용됩니다.
+coffee-shop 디렉터리의 터미널에서 테스트 DB 환경변수를 설정한 뒤 실행합니다.
 
 ```powershell
+$env:MYSQL_TEST_URL = 'jdbc:mysql://localhost:3306/coffee_mission_test_local?connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true'
+$env:MYSQL_TEST_USERNAME = '본인의 DB 계정'
+$env:MYSQL_TEST_PASSWORD = Read-Host 'DB 비밀번호' -MaskInput
 .\gradlew.bat mysqlTest
 ```
+
+MYSQL_TEST_URL은 localhost 또는 127.0.0.1의 coffee_mission_test_ DB만 허용합니다.
+테스트는 create-drop 설정으로 테이블을 생성·삭제하므로 과제 DB와 분리된 테스트 전용 DB를 사용합니다.
+mysqlTest는 매번 실행되도록 설정해 UP-TO-DATE로 검증이 생략되는 것을 방지합니다.
 
 ### 검증 결과
 
@@ -554,7 +561,6 @@ Outbox 작업자 경쟁·복구 테스트는 H2와 로컬 Mock HTTP 서버를 �
 
 실행 JAR와 실제 MySQL 임시 DB에서도 API 5개를 순서대로 요청해 확인했습니다.
 10,000P 충전 → 4,500P 결제 → 잔액 5,500P → 인기 메뉴 주문 횟수 1 → 외부 HTTP 수신 및 Outbox SENT를 확인했습니다.
-초기 데이터 SQL은 같은 DB에서 두 번 실행해 메뉴 3개가 유지되는 것도 확인했습니다.
 
 테스트 리포트는 coffee-shop/build/reports/tests/test/index.html 및 coffee-shop/build/reports/tests/mysqlTest/index.html에서 확인할 수 있습니다.
 
